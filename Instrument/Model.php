@@ -145,9 +145,16 @@ abstract class Model implements Arrayable, ArrayAccess, CanBeEscapedWhenCastToSt
     /**
      * The event dispatcher instance.
      *
-     * @var \Voyager\Contracts\Events\Dispatcher|null
+     * @var \Voyager\Contracts\Signals\SignalDispatcher|null
      */
     protected static $dispatcher;
+
+    /**
+     * Hydration inside a gig must not fire `retrieved`. Arrived does, on the caller.
+     *
+     * @var bool
+     */
+    protected static $quietRetrieved = false;
 
     /**
      * The array of booted models.
@@ -730,9 +737,39 @@ abstract class Model implements Arrayable, ArrayAccess, CanBeEscapedWhenCastToSt
 
         $model->setConnection($connection ?? $this->getConnectionName());
 
-        $model->fireModelEvent('retrieved', false);
+        if (! static::$quietRetrieved) {
+            $model->fireModelEvent('retrieved', false);
+        }
 
         return $model;
+    }
+
+    /**
+     * Fire `retrieved` for a model hydrated elsewhere (a pool worker) whose listeners live here.
+     *
+     * @return void
+     */
+    public function fireRetrieved()
+    {
+        $this->fireModelEvent('retrieved', false);
+    }
+
+    /**
+     * Run a callback while hydration stays quiet. Other model events still fire.
+     *
+     * @param  callable  $callback
+     * @return mixed
+     */
+    public static function withoutRetrieved(callable $callback)
+    {
+        $previous = static::$quietRetrieved;
+        static::$quietRetrieved = true;
+
+        try {
+            return $callback();
+        } finally {
+            static::$quietRetrieved = $previous;
+        }
     }
 
     /**
@@ -2307,7 +2344,7 @@ abstract class Model implements Arrayable, ArrayAccess, CanBeEscapedWhenCastToSt
      *
      * @return string
      */
-    public function broadcastChannelRoute()
+    public function broadcastChannelRoute(): string
     {
         return str_replace('\\', '.', get_class($this)).'.{'.Str::camel(class_basename($this)).'}';
     }
@@ -2317,7 +2354,7 @@ abstract class Model implements Arrayable, ArrayAccess, CanBeEscapedWhenCastToSt
      *
      * @return string
      */
-    public function broadcastChannel()
+    public function broadcastChannel(): string
     {
         return str_replace('\\', '.', get_class($this)).'.'.$this->getKey();
     }
