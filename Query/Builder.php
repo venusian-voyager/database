@@ -4455,45 +4455,33 @@ class Builder implements BuilderContract
     }
 
     /**
-     * Run a terminal on a work target and get a promise. Only a named connection can be offloaded: the worker finds it by name.
+     * This query's terminals run in a worker and answered by promises: the thread workers when
+     * they are on, the process workers otherwise, or the pool named. Build the query, then
+     * offload it: ->where(...)->via()->get().
      *
-     * @param  string|null  $target
-     * @return \Voyager\Database\IOPools\OffloadedQuery
+     * @param  'thread'|'process'|null  $pool
      *
-     * @throws \LogicException
+     * @throws \LogicException  the connection can't be reached from a worker as it stands
+     * @throws \InvalidArgumentException  the pool isn't on
      */
-    public function via($target = null)
+    public function via(?string $pool = null): \Voyager\Database\IOPools\OffloadedQuery
     {
-        if (is_null($this->connection->getName())) {
-            throw new \LogicException('This builder is not on a named connection, so a worker could not find it. Build it through the database manager to offload it.');
-        }
-
-        return new \Voyager\Database\IOPools\OffloadedQuery($this, app('work-targets')->driver($target));
+        return new \Voyager\Database\IOPools\OffloadedQuery($this, \Voyager\Database\IOPools\Offload::for($this->connection, $pool));
     }
 
     /**
-     * The rows as ModelChunk mail on the loop: keyed pages from a work target. done() settles with the row count.
+     * The rows as QueryChunk mail, $chunk at a time, keyed on $column (the key by default), each
+     * page read in a worker. The promise settles with the number of rows.
      *
-     * @param  int  $chunk
-     * @param  string|null  $column
-     * @param  string|null  $target
-     * @return \Voyager\Database\IOPools\QueryStreamResource
+     * @param  'thread'|'process'|null  $pool
+     * @return \Voyager\Contracts\IOPools\Promise
      *
-     * @throws \LogicException
+     * @throws \LogicException  the connection can't be reached from a worker as it stands
+     * @throws \InvalidArgumentException  the pool isn't on, or $chunk is under one
      */
-    public function stream($chunk = 1000, $column = null, $target = null)
+    public function stream(int $chunk = 1000, ?string $column = null, ?string $pool = null): \Voyager\Contracts\IOPools\Promise
     {
-        if (is_null($this->connection->getName())) {
-            throw new \LogicException('This builder is not on a named connection, so a worker could not find it. Build it through the database manager to offload it.');
-        }
-
-        return new \Voyager\Database\IOPools\QueryStreamResource(
-            app(\Voyager\Contracts\IOPools\Loop::class),
-            app('work-targets')->driver($target),
-            $this,
-            $chunk,
-            $column,
-        );
+        return new \Voyager\Database\IOPools\QueryStream($this, \Voyager\Database\IOPools\Offload::for($this->connection, $pool), $chunk, $column)->start();
     }
 
     /**

@@ -17,4 +17,10 @@ enum OffloadableStatement: string
     case STATEMENT = 'statement';
     case AFFECTING_STATEMENT = 'affectingStatement';
     case UNPREPARED = 'unprepared';
+
+    /** Everything but a select changes the database, and runs alone on its connection. */
+    public function writes(): bool
+    {
+        return ! in_array($this, [self::SELECT, self::SELECT_ONE, self::SELECT_FROM_WRITE_CONNECTION, self::SCALAR], true);
+    }
 }

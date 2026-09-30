@@ -4,19 +4,24 @@ declare(strict_types=1);
 
 namespace Voyager\Database\IOPools;
 
-use Voyager\Contracts\IOPools\ShouldPool;
+use Voyager\Contracts\IOPools\WorkerPools\ShouldPool;
 
-/** A connection name, a method, and its args. The worker does app('db')->connection($name). */
-final class ConnectionGig implements ShouldPool
+/** A raw statement on the named connection, run where the gig lands. */
+final readonly class ConnectionGig implements ShouldPool
 {
+    /**
+     * @param array<string, mixed> $config the caller's connection config
+     * @param list<mixed> $args
+     */
     public function __construct(
-        public readonly string $connection,
-        public readonly string $method,
-        public readonly array $args = [],
+        public string $connection,
+        public array $config,
+        public string $method,
+        public array $args = [],
     ) {}
 
     public function handle(): mixed
     {
-        return app('db')->connection($this->connection)->{$this->method}(...$this->args);
+        return WorkerConnection::resolve($this->connection, $this->config)->{$this->method}(...$this->args);
     }
 }

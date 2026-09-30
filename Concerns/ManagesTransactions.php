@@ -123,6 +123,8 @@ trait ManagesTransactions
      */
     public function beginTransaction()
     {
+        $this->settleOffloaded(true);
+
         foreach ($this->beforeStartingTransaction as $callback) {
             $callback($this);
         }

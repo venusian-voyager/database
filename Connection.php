@@ -345,20 +345,28 @@ class Connection implements ConnectionInterface
     }
 
     /**
-     * Run a raw statement on a work target and get a promise. Only a named connection can be offloaded.
+     * This connection's raw statements, and whole transactions, run in a worker and answered by
+     * promises: the thread workers when they are on, the process workers otherwise, or the pool named.
      *
-     * @param  string|null  $target
-     * @return \Voyager\Database\IOPools\OffloadedConnection
+     * @param  'thread'|'process'|null  $pool
      *
-     * @throws \LogicException
+     * @throws \LogicException  the connection can't be reached from a worker as it stands
+     * @throws \InvalidArgumentException  the pool isn't on
      */
-    public function via($target = null)
+    public function via(?string $pool = null): \Voyager\Database\IOPools\OffloadedConnection
     {
-        if (is_null($name = $this->getName())) {
-            throw new \LogicException('This connection has no name, so a worker could not find it. Resolve it through the database manager to offload it.');
-        }
+        return new \Voyager\Database\IOPools\OffloadedConnection(\Voyager\Database\IOPools\Offload::for($this, $pool));
+    }
 
-        return new \Voyager\Database\IOPools\OffloadedConnection($name, app('work-targets')->driver($target));
+    /**
+     * A blocking query waits for the offloaded calls made on this connection that it must not
+     * overtake: a read for the offloaded writes, a write for every offloaded call.
+     */
+    protected function settleOffloaded(bool $write): void
+    {
+        if (! is_null($name = $this->getName())) {
+            \Voyager\Database\IOPools\ConnectionLanes::current()?->settle($name, $write);
+        }
     }
 
     /**
@@ -425,6 +433,8 @@ class Connection implements ConnectionInterface
      */
     public function select($query, $bindings = [], $useReadPdo = true)
     {
+        $this->settleOffloaded(false);
+
         return $this->run($query, $bindings, function ($query, $bindings) use ($useReadPdo) {
             if ($this->pretending()) {
                 return [];
@@ -488,6 +498,8 @@ class Connection implements ConnectionInterface
      */
     public function cursor($query, $bindings = [], $useReadPdo = true)
     {
+        $this->settleOffloaded(false);
+
         $statement = $this->run($query, $bindings, function ($query, $bindings) use ($useReadPdo) {
             if ($this->pretending()) {
                 return [];
@@ -587,6 +599,8 @@ class Connection implements ConnectionInterface
      */
     public function statement($query, $bindings = [])
     {
+        $this->settleOffloaded(true);
+
         return $this->run($query, $bindings, function ($query, $bindings) {
             if ($this->pretending()) {
                 return true;
@@ -611,6 +625,8 @@ class Connection implements ConnectionInterface
      */
     public function affectingStatement($query, $bindings = [])
     {
+        $this->settleOffloaded(true);
+
         return $this->run($query, $bindings, function ($query, $bindings) {
             if ($this->pretending()) {
                 return 0;
@@ -641,6 +657,8 @@ class Connection implements ConnectionInterface
      */
     public function unprepared($query)
     {
+        $this->settleOffloaded(true);
+
         return $this->run($query, [], function ($query) {
             if ($this->pretending()) {
                 return true;
